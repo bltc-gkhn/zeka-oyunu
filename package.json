@@ -1,0 +1,15 @@
+{
+  "name": "zeka-oyunu",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "expo start",
+    "build:web": "expo export -p web"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-web": "~0.19.10"
+  }
+}
