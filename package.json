@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
-    "build:web": "expo export -p web"
+    "build": "expo export -p web"
   },
   "dependencies": {
     "expo": "~51.0.0",
