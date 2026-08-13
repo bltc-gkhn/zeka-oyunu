@@ -54,6 +54,15 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // URL'deki ?seed=123456 parametresini otomatik yakalar
+    if (typeof window !== 'undefined' && window.location) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlSeed = urlParams.get('seed');
+      if (urlSeed) {
+        setSeed(urlSeed);
+        return;
+      }
+    }
     setPool(generatePoolBySeed(seed));
   }, [seed]);
 
@@ -68,7 +77,7 @@ export default function App() {
   const handleShareChallenge = async () => {
     try {
       // ⚠️ Buradaki linki kendi Expo Snack adresiniz ile değiştirin!
-      const snackBaseUrl = 'https://snack.expo.dev/@bltc.gkhn.061/zeka-oyunu';
+      const snackBaseUrl = 'https://zeka-oyunu-omega.vercel.app/';
       
       const message = `🧠 zeka-oyunu'da #${seed} oturumunda ${totalScore} puan yaptım!\n\nAynı kartlarla beni geçebilir misin?\n🔗 Oyna: ${snackBaseUrl}?seed=${seed}`;
       
