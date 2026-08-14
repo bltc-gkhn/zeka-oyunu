@@ -12,6 +12,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
+// Web ve Mobil Uyumlu Uyarı Fonksiyonu
+const showAlert = (title, message) => {
+  if (typeof window !== 'undefined' && window.alert) {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+};
+
 // Seed bazlı rastgele kart üretici
 const seededRandom = (seed) => {
   const x = Math.sin(seed) * 10000;
@@ -53,7 +62,6 @@ export default function App() {
   const [foundWords, setFoundWords] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Sadece ilk açılışta URL parametresini yakalar
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -75,7 +83,6 @@ export default function App() {
     setTotalScore(0);
     setInputWord('');
 
-    // Adres çubuğundaki eski ?seed=... parametresini temizler
     if (typeof window !== 'undefined' && window.history && window.location) {
       const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
       window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
@@ -89,7 +96,7 @@ export default function App() {
       
       await Share.share({ message });
     } catch (error) {
-      Alert.alert('Hata', 'Paylaşım panosu açılamadı.');
+      showAlert('Hata', 'Paylaşım panosu açılamadı.');
     }
   };
 
@@ -101,9 +108,9 @@ export default function App() {
     setInputWord('');
   };
 
-  // TDK Kelime Doğrulama Servisi
+  // Zaman Aşımı ve Çift Proxy Destekli TDK Kontrolü
   const checkWordWithTDK = async (rawInput) => {
-    const hasNumbers = /\d/.test(rawInput); // İçinde rakam var mı kontrolü
+    const hasNumbers = /\d/.test(rawInput);
 
     let targetWord = rawInput
       .replace(/1000/g, 'bin')
@@ -112,31 +119,48 @@ export default function App() {
       .replace(/1/g, 'bir')
       .toLowerCase('tr-TR');
 
-    // Min 3 harf kuralı (Açılmış kelimeye göre)
     if (targetWord.length < 3) {
       return { isValid: false, reason: 'short', expanded: targetWord };
     }
 
-    try {
-      const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tdkUrl)}`;
-      
-      const response = await fetch(proxyUrl);
-      if (!response.ok) {
-        throw new Error('Sunucu yanıtı başarısız');
-      }
+    const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
+    
+    // 2 Farklı Proxy Servisi (Biri takılırsa diğeri devreye girer)
+    const proxies = [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(tdkUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(tdkUrl)}`
+    ];
 
-      const data = await response.json();
+    for (const proxy of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000); // Max 4 sn bekle
 
-      if (Array.isArray(data) && data.length > 0 && !data.error) {
-        return { isValid: true, expanded: targetWord, hasNumbers };
-      } else {
-        return { isValid: false, reason: 'not_found', expanded: targetWord };
+        const response = await fetch(proxy, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) continue;
+
+        let data;
+        if (proxy.includes('allorigins.win')) {
+          const wrapper = await response.json();
+          if (!wrapper.contents) continue;
+          data = JSON.parse(wrapper.contents);
+        } else {
+          data = await response.json();
+        }
+
+        if (Array.isArray(data) && data.length > 0 && !data.error) {
+          return { isValid: true, expanded: targetWord, hasNumbers };
+        } else {
+          return { isValid: false, reason: 'not_found', expanded: targetWord };
+        }
+      } catch (err) {
+        console.warn('Proxy denemesi başarısız veya zaman aşımı:', err);
       }
-    } catch (err) {
-      console.warn('TDK API Bağlantı Hatası:', err);
-      return { isValid: false, reason: 'connection_error', expanded: targetWord };
     }
+
+    return { isValid: false, reason: 'connection_error', expanded: targetWord };
   };
 
   const handleSubmit = async () => {
@@ -144,7 +168,7 @@ export default function App() {
     if (!cleanInput) return;
 
     if (foundWords.some((w) => w.input.toLowerCase() === cleanInput.toLowerCase())) {
-      Alert.alert('Uyarı', 'Bu kelimeyi zaten buldunuz!');
+      showAlert('Uyarı', 'Bu kelimeyi zaten buldunuz!');
       return;
     }
 
@@ -153,18 +177,16 @@ export default function App() {
     setLoading(false);
 
     if (result.isValid) {
-      // Puan Hesaplama: Sayı varsa 2 katı, sadece harfse 1 katı
       const multiplier = result.hasNumbers ? 2 : 1;
       const score = result.expanded.length * multiplier;
-
       addValidWord(cleanInput, result.expanded, score, result.hasNumbers);
     } else {
       if (result.reason === 'short') {
-        Alert.alert('Kural İhlali', 'Oluşturulacak kelimeler en az 3 harfli olmalıdır!');
+        showAlert('Kural İhlali', 'Oluşturulacak kelimeler en az 3 harfli olmalıdır!');
       } else if (result.reason === 'connection_error') {
-        Alert.alert('Bağlantı Hatası', 'TDK sözlüğüne erişilemedi. İnternet bağlantınızı kontrol edip tekrar deneyin.');
+        showAlert('Bağlantı Hatası', 'TDK sunucusuna bağlanılamadı. Lütfen tekrar deneyin.');
       } else {
-        Alert.alert('Geçersiz Kelime', `"${cleanInput}" TDK sözlüğünde bulunamadı.`);
+        showAlert('Geçersiz Kelime', `"${cleanInput}" TDK sözlüğünde bulunamadı.`);
       }
     }
   };
