@@ -21,6 +21,11 @@ const showAlert = (title, message) => {
   }
 };
 
+// Türkçe harf uzunluğunu (İ, I vb. karmaşasını) doğru hesaplayan yardımcı fonksiyon
+const getTurkishLength = (str) => {
+  return [...str].length;
+};
+
 // Seed bazlı rastgele kart üretici
 const seededRandom = (seed) => {
   const x = Math.sin(seed) * 10000;
@@ -84,7 +89,6 @@ export default function App() {
     setTotalScore(0);
     setInputWord('');
 
-    // Adres çubuğundaki eski ?seed=... takısını temizler
     if (typeof window !== 'undefined' && window.history && window.location) {
       const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
       window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
@@ -112,7 +116,7 @@ export default function App() {
 
   // Orijinal Temiz TDK Kontrol Yapısı
   const checkWordWithTDK = async (rawInput) => {
-    const hasNumbers = /\d/.test(rawInput); // İçinde sayı kartı var mı?
+    const hasNumbers = /\d/.test(rawInput);
 
     let targetWord = rawInput
       .replace(/1000/g, 'bin')
@@ -121,8 +125,10 @@ export default function App() {
       .replace(/1/g, 'bir')
       .toLowerCase('tr-TR');
 
-    if (targetWord.length < 3) {
-      return { isValid: false, reason: 'short', expanded: targetWord };
+    const wordLength = getTurkishLength(targetWord);
+
+    if (wordLength < 3) {
+      return { isValid: false, reason: 'short', expanded: targetWord, length: wordLength };
     }
 
     try {
@@ -132,18 +138,17 @@ export default function App() {
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0 && !data.error) {
-        return { isValid: true, expanded: targetWord, hasNumbers };
+        return { isValid: true, expanded: targetWord, hasNumbers, length: wordLength };
       }
     } catch (err) {
       console.warn('TDK API Bağlantı Hatası, yerel kontrole geçiliyor:', err);
     }
 
-    // İlk koddaki gibi: TDK engeline takılırsa veya doğrudan erişim olursa
-    if (targetWord.length >= 3) {
-      return { isValid: true, expanded: targetWord, hasNumbers };
+    if (wordLength >= 3) {
+      return { isValid: true, expanded: targetWord, hasNumbers, length: wordLength };
     }
 
-    return { isValid: false, reason: 'not_found', expanded: targetWord };
+    return { isValid: false, reason: 'not_found', expanded: targetWord, length: wordLength };
   };
 
   const handleSubmit = async () => {
@@ -160,9 +165,9 @@ export default function App() {
     setLoading(false);
 
     if (result.isValid) {
-      // Puanlama: Sayı varsa harf sayısının 2 katı, sadece harfse harf sayısı kadar
+      // Puanlama: Sayı varsa harf sayısının 2 katı, sadece harfse tam harf sayısı kadar
       const multiplier = result.hasNumbers ? 2 : 1;
-      const score = result.expanded.length * multiplier;
+      const score = result.length * multiplier;
 
       addValidWord(cleanInput, result.expanded, score, result.hasNumbers);
     } else {
