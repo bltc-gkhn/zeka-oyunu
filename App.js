@@ -58,6 +58,68 @@ const generatePoolBySeed = (seedStr) => {
   };
 };
 
+// --- HARF VE KART KURAL KONTROL MOTORU ---
+const validatePoolRules = (rawInput, pool) => {
+  let workStr = rawInput.trim().toLocaleUpperCase('tr-TR');
+
+  // 1. Rakam Kontrolü
+  let availableNumbers = [...pool.numbers].map((n) => n.toString());
+  const sortedNumberTokens = ['1000', '100', '10', '1'];
+
+  for (const numToken of sortedNumberTokens) {
+    while (workStr.includes(numToken)) {
+      const index = availableNumbers.indexOf(numToken);
+      if (index === -1) {
+        return {
+          isValid: false,
+          reason: `Oturumda ${numToken} sayısı bulunmuyor veya hakkınızı tamamladınız!`,
+        };
+      }
+      availableNumbers.splice(index, 1);
+      workStr = workStr.replace(numToken, '');
+    }
+  }
+
+  // Temizlik sonrası geçersiz bir rakam kalıp kalmadığının kontrolü
+  if (/\d/.test(workStr)) {
+    return {
+      isValid: false,
+      reason: 'Oturum kartlarında bulunmayan bir sayı kullandınız!',
+    };
+  }
+
+  // 2. Harf Kontrolü
+  const allowedVowels = pool.vowels.map((v) => v.toLocaleUpperCase('tr-TR'));
+  const allowedConsonants = pool.consonants.map((c) => c.toLocaleUpperCase('tr-TR'));
+
+  const consonantUsage = {};
+  const chars = [...workStr];
+
+  for (const char of chars) {
+    if (allowedVowels.includes(char)) {
+      // Sesli harf izinli (Sınırsız)
+      continue;
+    } else if (allowedConsonants.includes(char)) {
+      // Sessiz harf izinli (Max 2 kullanım)
+      consonantUsage[char] = (consonantUsage[char] || 0) + 1;
+      if (consonantUsage[char] > 2) {
+        return {
+          isValid: false,
+          reason: `"${char}" sessiz harfini bir kelimede en fazla 2 defa kullanabilirsiniz!`,
+        };
+      }
+    } else {
+      // Oturumda verilmeyen geçersiz harf
+      return {
+        isValid: false,
+        reason: `"${char}" harfi bu oturumun kartlarında yer almıyor!`,
+      };
+    }
+  }
+
+  return { isValid: true };
+};
+
 export default function App() {
   const [seed, setSeed] = useState('749201');
   const [pool, setPool] = useState(() => generatePoolBySeed('749201'));
@@ -97,8 +159,8 @@ export default function App() {
   const handleShareChallenge = async () => {
     try {
       const siteUrl = 'https://zeka-oyunu-omega.vercel.app/';
-      const message = `🧠 zeka-oyunu'da #${seed} oturumunda ${totalScore} puan yaptım!\n\nAynı kartlarla beni geçebilir misin?\n🔗 Oyna: ${siteUrl}?seed=${seed}`;
-      
+      const message = `🧠 zeka-oyunu'da #${seed} oturumunda ${totalScore} puan yaptım!\n\nAynı kartlarla beni geçabilir misin?\n🔗 Oyna: ${siteUrl}?seed=${seed}`;
+
       await Share.share({ message });
     } catch (error) {
       showAlert('Hata', 'Paylaşım panosu açılamadı.');
@@ -113,7 +175,6 @@ export default function App() {
     setInputWord('');
   };
 
-  // Vercel Kendi Özel Sunucusuz Servisi Üzerinden Doğrulama
   const checkWordWithTDK = async (rawInput) => {
     const hasNumbers = /\d/.test(rawInput);
 
@@ -131,7 +192,6 @@ export default function App() {
     }
 
     try {
-      // Dışarıdaki yavaş proxyler yerine Vercel üzerindeki kendi api/tdk servisimize soruyoruz
       const response = await fetch(`/api/tdk?ara=${encodeURIComponent(targetWord)}`);
 
       if (!response.ok) {
@@ -140,7 +200,6 @@ export default function App() {
 
       const data = await response.json();
 
-      // TDK geçerli bir anlam bulduysa array döner ve içinde error nesnesi olmaz
       if (Array.isArray(data) && data.length > 0 && !data.error) {
         return { isValid: true, expanded: targetWord, hasNumbers, length: wordLength };
       } else {
@@ -156,11 +215,20 @@ export default function App() {
     const cleanInput = inputWord.trim();
     if (!cleanInput) return;
 
+    // 1. Önce Oturum Kart Kuralları Kontrol Edilir
+    const poolValidation = validatePoolRules(cleanInput, pool);
+    if (!poolValidation.isValid) {
+      showAlert('Geçersiz Kart Kullanımı', poolValidation.reason);
+      return;
+    }
+
+    // 2. Zaten Bulundu mu Kontrolü
     if (foundWords.some((w) => w.input.toLowerCase() === cleanInput.toLowerCase())) {
       showAlert('Uyarı', 'Bu kelimeyi zaten buldunuz!');
       return;
     }
 
+    // 3. TDK Sözlük Doğrulaması
     setLoading(true);
     const result = await checkWordWithTDK(cleanInput);
     setLoading(false);
