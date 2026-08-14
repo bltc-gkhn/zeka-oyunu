@@ -53,33 +53,39 @@ export default function App() {
   const [foundWords, setFoundWords] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Sadece ilk açılışta URL parametresini yakalar
   useEffect(() => {
-    // URL'deki ?seed=123456 parametresini otomatik yakalar
     if (typeof window !== 'undefined' && window.location) {
       const urlParams = new URLSearchParams(window.location.search);
       const urlSeed = urlParams.get('seed');
       if (urlSeed) {
         setSeed(urlSeed);
+        setPool(generatePoolBySeed(urlSeed));
         return;
       }
     }
     setPool(generatePoolBySeed(seed));
-  }, [seed]);
+  }, []);
 
   const handleNewGame = () => {
     const randomSeed = Math.floor(100000 + Math.random() * 900000).toString();
     setSeed(randomSeed);
+    setPool(generatePoolBySeed(randomSeed));
     setFoundWords([]);
     setTotalScore(0);
     setInputWord('');
+
+    // Adres çubuğundaki eski ?seed=... parametresini temizler
+    if (typeof window !== 'undefined' && window.history && window.location) {
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
+    }
   };
 
   const handleShareChallenge = async () => {
     try {
-      // ⚠️ Buradaki linki kendi Expo Snack adresiniz ile değiştirin!
-      const snackBaseUrl = 'https://zeka-oyunu-omega.vercel.app/';
-      
-      const message = `🧠 zeka-oyunu'da #${seed} oturumunda ${totalScore} puan yaptım!\n\nAynı kartlarla beni geçebilir misin?\n🔗 Oyna: ${snackBaseUrl}?seed=${seed}`;
+      const siteUrl = 'https://zeka-oyunu-omega.vercel.app/';
+      const message = `🧠 zeka-oyunu'da #${seed} oturumunda ${totalScore} puan yaptım!\n\nAynı kartlarla beni geçebilir misin?\n🔗 Oyna: ${siteUrl}?seed=${seed}`;
       
       await Share.share({ message });
     } catch (error) {
@@ -97,6 +103,8 @@ export default function App() {
 
   // TDK Kelime Doğrulama Servisi
   const checkWordWithTDK = async (rawInput) => {
+    const hasNumbers = /\d/.test(rawInput); // İçinde rakam var mı kontrolü
+
     let targetWord = rawInput
       .replace(/1000/g, 'bin')
       .replace(/100/g, 'yüz')
@@ -104,29 +112,31 @@ export default function App() {
       .replace(/1/g, 'bir')
       .toLowerCase('tr-TR');
 
-    // En az 3 harf kuralı
+    // Min 3 harf kuralı (Açılmış kelimeye göre)
     if (targetWord.length < 3) {
       return { isValid: false, reason: 'short', expanded: targetWord };
     }
 
     try {
-      const response = await fetch(
-        `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`
-      );
+      const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tdkUrl)}`;
+      
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        throw new Error('Sunucu yanıtı başarısız');
+      }
+
       const data = await response.json();
 
       if (Array.isArray(data) && data.length > 0 && !data.error) {
-        return { isValid: true, expanded: targetWord };
+        return { isValid: true, expanded: targetWord, hasNumbers };
+      } else {
+        return { isValid: false, reason: 'not_found', expanded: targetWord };
       }
     } catch (err) {
-      console.warn('TDK API Bağlantı Hatası, lokal kontrole geçiliyor:', err);
+      console.warn('TDK API Bağlantı Hatası:', err);
+      return { isValid: false, reason: 'connection_error', expanded: targetWord };
     }
-
-    if (targetWord.length >= 3) {
-      return { isValid: true, expanded: targetWord };
-    }
-
-    return { isValid: false, reason: 'not_found', expanded: targetWord };
   };
 
   const handleSubmit = async () => {
@@ -143,19 +153,24 @@ export default function App() {
     setLoading(false);
 
     if (result.isValid) {
-      const score = result.expanded.length * 2;
-      addValidWord(cleanInput, result.expanded, score);
+      // Puan Hesaplama: Sayı varsa 2 katı, sadece harfse 1 katı
+      const multiplier = result.hasNumbers ? 2 : 1;
+      const score = result.expanded.length * multiplier;
+
+      addValidWord(cleanInput, result.expanded, score, result.hasNumbers);
     } else {
       if (result.reason === 'short') {
         Alert.alert('Kural İhlali', 'Oluşturulacak kelimeler en az 3 harfli olmalıdır!');
+      } else if (result.reason === 'connection_error') {
+        Alert.alert('Bağlantı Hatası', 'TDK sözlüğüne erişilemedi. İnternet bağlantınızı kontrol edip tekrar deneyin.');
       } else {
         Alert.alert('Geçersiz Kelime', `"${cleanInput}" TDK sözlüğünde bulunamadı.`);
       }
     }
   };
 
-  const addValidWord = (input, expanded, score) => {
-    setFoundWords([{ input, expanded, score }, ...foundWords]);
+  const addValidWord = (input, expanded, score, hasNumbers) => {
+    setFoundWords([{ input, expanded, score, hasNumbers }, ...foundWords]);
     setTotalScore((prev) => prev + score);
     setInputWord('');
   };
@@ -265,9 +280,14 @@ export default function App() {
           keyExtractor={(item, index) => `${item.input}-${index}`}
           renderItem={({ item }) => (
             <View style={styles.wordItem}>
-              <Text style={styles.wordText}>
-                {item.input} <Text style={styles.expandedText}>({item.expanded})</Text>
-              </Text>
+              <View>
+                <Text style={styles.wordText}>
+                  {item.input} <Text style={styles.expandedText}>({item.expanded})</Text>
+                </Text>
+                {item.hasNumbers && (
+                  <Text style={styles.bonusBadge}>⚡ 2x Sayı Bonusu</Text>
+                )}
+              </View>
               <Text style={styles.wordScore}>+{item.score} P</Text>
             </View>
           )}
@@ -310,8 +330,9 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFF', fontWeight: 'bold' },
 
   listSection: { flex: 1, backgroundColor: '#FFF', padding: 12, borderRadius: 12, marginBottom: 12 },
-  wordItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  wordItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   wordText: { fontSize: 16, fontWeight: '600', color: '#1F2937' },
   expandedText: { fontSize: 14, color: '#6B7280', fontStyle: 'italic' },
+  bonusBadge: { fontSize: 10, color: '#D97706', fontWeight: 'bold', marginTop: 2 },
   wordScore: { fontSize: 16, fontWeight: 'bold', color: '#10B981' },
 });
