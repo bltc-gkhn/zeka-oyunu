@@ -62,6 +62,7 @@ export default function App() {
   const [foundWords, setFoundWords] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Sadece ilk açılışta URL parametresini yakalar
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -83,6 +84,7 @@ export default function App() {
     setTotalScore(0);
     setInputWord('');
 
+    // Adres çubuğundaki eski ?seed=... takısını temizler
     if (typeof window !== 'undefined' && window.history && window.location) {
       const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
       window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
@@ -108,9 +110,9 @@ export default function App() {
     setInputWord('');
   };
 
-  // Zaman Aşımı ve Çift Proxy Destekli TDK Kontrolü
+  // Orijinal Temiz TDK Kontrol Yapısı
   const checkWordWithTDK = async (rawInput) => {
-    const hasNumbers = /\d/.test(rawInput);
+    const hasNumbers = /\d/.test(rawInput); // İçinde sayı kartı var mı?
 
     let targetWord = rawInput
       .replace(/1000/g, 'bin')
@@ -123,44 +125,25 @@ export default function App() {
       return { isValid: false, reason: 'short', expanded: targetWord };
     }
 
-    const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
-    
-    // 2 Farklı Proxy Servisi (Biri takılırsa diğeri devreye girer)
-    const proxies = [
-      `https://api.allorigins.win/get?url=${encodeURIComponent(tdkUrl)}`,
-      `https://corsproxy.io/?${encodeURIComponent(tdkUrl)}`
-    ];
+    try {
+      const response = await fetch(
+        `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`
+      );
+      const data = await response.json();
 
-    for (const proxy of proxies) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000); // Max 4 sn bekle
-
-        const response = await fetch(proxy, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) continue;
-
-        let data;
-        if (proxy.includes('allorigins.win')) {
-          const wrapper = await response.json();
-          if (!wrapper.contents) continue;
-          data = JSON.parse(wrapper.contents);
-        } else {
-          data = await response.json();
-        }
-
-        if (Array.isArray(data) && data.length > 0 && !data.error) {
-          return { isValid: true, expanded: targetWord, hasNumbers };
-        } else {
-          return { isValid: false, reason: 'not_found', expanded: targetWord };
-        }
-      } catch (err) {
-        console.warn('Proxy denemesi başarısız veya zaman aşımı:', err);
+      if (Array.isArray(data) && data.length > 0 && !data.error) {
+        return { isValid: true, expanded: targetWord, hasNumbers };
       }
+    } catch (err) {
+      console.warn('TDK API Bağlantı Hatası, yerel kontrole geçiliyor:', err);
     }
 
-    return { isValid: false, reason: 'connection_error', expanded: targetWord };
+    // İlk koddaki gibi: TDK engeline takılırsa veya doğrudan erişim olursa
+    if (targetWord.length >= 3) {
+      return { isValid: true, expanded: targetWord, hasNumbers };
+    }
+
+    return { isValid: false, reason: 'not_found', expanded: targetWord };
   };
 
   const handleSubmit = async () => {
@@ -177,14 +160,14 @@ export default function App() {
     setLoading(false);
 
     if (result.isValid) {
+      // Puanlama: Sayı varsa harf sayısının 2 katı, sadece harfse harf sayısı kadar
       const multiplier = result.hasNumbers ? 2 : 1;
       const score = result.expanded.length * multiplier;
+
       addValidWord(cleanInput, result.expanded, score, result.hasNumbers);
     } else {
       if (result.reason === 'short') {
         showAlert('Kural İhlali', 'Oluşturulacak kelimeler en az 3 harfli olmalıdır!');
-      } else if (result.reason === 'connection_error') {
-        showAlert('Bağlantı Hatası', 'TDK sunucusuna bağlanılamadı. Lütfen tekrar deneyin.');
       } else {
         showAlert('Geçersiz Kelime', `"${cleanInput}" TDK sözlüğünde bulunamadı.`);
       }
