@@ -113,7 +113,7 @@ export default function App() {
     setInputWord('');
   };
 
-  // Kesin TDK Doğrulama Yapısı (Uydurma kelime geçişi tamamen engellendi)
+  // Vercel Kendi Özel Sunucusuz Servisi Üzerinden Doğrulama
   const checkWordWithTDK = async (rawInput) => {
     const hasNumbers = /\d/.test(rawInput);
 
@@ -131,11 +131,9 @@ export default function App() {
     }
 
     try {
-      // Tarayıcı güvenlik (CORS) engelini aşmak için proxy kullanımı
-      const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tdkUrl)}`;
+      // Dışarıdaki yavaş proxyler yerine Vercel üzerindeki kendi api/tdk servisimize soruyoruz
+      const response = await fetch(`/api/tdk?ara=${encodeURIComponent(targetWord)}`);
 
-      const response = await fetch(proxyUrl);
       if (!response.ok) {
         return { isValid: false, reason: 'connection_error', expanded: targetWord, length: wordLength };
       }
@@ -149,7 +147,7 @@ export default function App() {
         return { isValid: false, reason: 'not_found', expanded: targetWord, length: wordLength };
       }
     } catch (err) {
-      console.warn('TDK API sorgu hatası:', err);
+      console.warn('TDK sorgu hatası:', err);
       return { isValid: false, reason: 'connection_error', expanded: targetWord, length: wordLength };
     }
   };
