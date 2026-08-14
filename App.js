@@ -21,7 +21,7 @@ const showAlert = (title, message) => {
   }
 };
 
-// Türkçe harf uzunluğunu (İ, I vb. karmaşasını) doğru hesaplayan yardımcı fonksiyon
+// Türkçe harf uzunluğunu doğru hesaplayan yardımcı fonksiyon
 const getTurkishLength = (str) => {
   return [...str].length;
 };
@@ -67,7 +67,6 @@ export default function App() {
   const [foundWords, setFoundWords] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Sadece ilk açılışta URL parametresini yakalar
   useEffect(() => {
     if (typeof window !== 'undefined' && window.location) {
       const urlParams = new URLSearchParams(window.location.search);
@@ -114,7 +113,7 @@ export default function App() {
     setInputWord('');
   };
 
-  // Orijinal Temiz TDK Kontrol Yapısı
+  // Kesin TDK Doğrulama Yapısı (Uydurma kelime geçişi tamamen engellendi)
   const checkWordWithTDK = async (rawInput) => {
     const hasNumbers = /\d/.test(rawInput);
 
@@ -132,23 +131,27 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(
-        `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`
-      );
+      // Tarayıcı güvenlik (CORS) engelini aşmak için proxy kullanımı
+      const tdkUrl = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(targetWord)}`;
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(tdkUrl)}`;
+
+      const response = await fetch(proxyUrl);
+      if (!response.ok) {
+        return { isValid: false, reason: 'connection_error', expanded: targetWord, length: wordLength };
+      }
+
       const data = await response.json();
 
+      // TDK geçerli bir anlam bulduysa array döner ve içinde error nesnesi olmaz
       if (Array.isArray(data) && data.length > 0 && !data.error) {
         return { isValid: true, expanded: targetWord, hasNumbers, length: wordLength };
+      } else {
+        return { isValid: false, reason: 'not_found', expanded: targetWord, length: wordLength };
       }
     } catch (err) {
-      console.warn('TDK API Bağlantı Hatası, yerel kontrole geçiliyor:', err);
+      console.warn('TDK API sorgu hatası:', err);
+      return { isValid: false, reason: 'connection_error', expanded: targetWord, length: wordLength };
     }
-
-    if (wordLength >= 3) {
-      return { isValid: true, expanded: targetWord, hasNumbers, length: wordLength };
-    }
-
-    return { isValid: false, reason: 'not_found', expanded: targetWord, length: wordLength };
   };
 
   const handleSubmit = async () => {
@@ -165,7 +168,6 @@ export default function App() {
     setLoading(false);
 
     if (result.isValid) {
-      // Puanlama: Sayı varsa harf sayısının 2 katı, sadece harfse tam harf sayısı kadar
       const multiplier = result.hasNumbers ? 2 : 1;
       const score = result.length * multiplier;
 
@@ -173,6 +175,8 @@ export default function App() {
     } else {
       if (result.reason === 'short') {
         showAlert('Kural İhlali', 'Oluşturulacak kelimeler en az 3 harfli olmalıdır!');
+      } else if (result.reason === 'connection_error') {
+        showAlert('Bağlantı Hatası', 'TDK sunucusuna şu an ulaşılamıyor, lütfen tekrar deneyin.');
       } else {
         showAlert('Geçersiz Kelime', `"${cleanInput}" TDK sözlüğünde bulunamadı.`);
       }
